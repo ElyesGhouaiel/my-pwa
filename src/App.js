@@ -20,20 +20,26 @@ const messaging = getMessaging(app);
 function App() {
   const [notification, setNotification] = useState({ title: '', body: '' });
   const [fcmToken, setFcmToken] = useState('');
+  const [isInstallable, setIsInstallable] = useState(false);
+  let deferredPrompt;
+  
+  // Utilisation d'une référence mutable pour unsubscribe
+  const unsubscribeRef = React.useRef(null);
 
   useEffect(() => {
+    // Enregistrement du service worker
     register({
       onUpdate: registration => console.log('Service Worker updated:', registration),
       onSuccess: registration => console.log('Service Worker registered:', registration)
     });
 
+    // Demande de permission pour les notifications
     requestPermission();
-    const messaging = getMessaging();
-    
-    const unsubscribe = onMessage(messaging, (payload) => {
+
+    // Gestion des messages reçus
+    unsubscribeRef.current = onMessage(messaging, (payload) => {
       console.log('Message reçu:', payload);
       if (payload.notification) {
-        // Afficher manuellement la notification
         new Notification(payload.notification.title, {
           body: payload.notification.body,
           icon: payload.notification.icon
@@ -41,9 +47,35 @@ function App() {
       }
     });
 
+    // Gestion de l'événement beforeinstallprompt
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      setIsInstallable(true); // Affichez le bouton d'installation
+    });
 
-    return () => unsubscribe();
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current(); // Appel de unsubscribe si défini
+      }
+      window.removeEventListener('beforeinstallprompt', () => {});
+    };
   }, []);
+
+  const handleInstallClick = () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') {
+          console.log('Utilisateur a accepté l\'installation');
+        } else {
+          console.log('Utilisateur a refusé l\'installation');
+        }
+        deferredPrompt = null;
+        setIsInstallable(false); // Masquez le bouton après utilisation
+      });
+    }
+  };
 
   const requestPermission = async () => {
     console.log('Demande de permission...');
@@ -74,23 +106,20 @@ function App() {
       }
     } catch (err) {
       console.error('Une erreur est survenue lors de la récupération du token :', err);
-      if (err.code === 'messaging/permission-blocked') {
-        console.log('Les notifications sont bloquées par le navigateur');
-      } else if (err.code === 'messaging/failed-service-worker-registration') {
-        console.log('Échec de l\'enregistrement du service worker');
-      }
     }
   };
+
   const sendTokenToServer = async (token) => {
     try {
       const response = await fetch('http://localhost:3001/api/send-notification', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': 'kiki'  // Ajoutez l'API key dans les headers
+          'apikey': 'kiki'  
         },
-        body: JSON.stringify({ token }),  // Retirez l'apikey du body
+        body: JSON.stringify({ token }),
       });
+      
       if (response.ok) {
         console.log('Token envoyé au serveur avec succès');
       } else {
@@ -105,8 +134,15 @@ function App() {
     <div className="App">
       <header className="App-header">
         <h1>Ma PWA React avec Notifications Push</h1>
+        
+        {isInstallable && (
+          <button onClick={handleInstallClick}>Installer l'application</button>
+        )}
+        
         <button onClick={requestPermission}>Demander la permission pour les notifications</button>
+        
         {fcmToken && <p>Token FCM: {fcmToken}</p>}
+        
         {notification.title && (
           <div>
             <h2>Dernière notification :</h2>
@@ -114,6 +150,7 @@ function App() {
             <p>{notification.body}</p>
           </div>
         )}
+        
       </header>
     </div>
   );

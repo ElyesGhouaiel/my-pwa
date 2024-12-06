@@ -13,5 +13,5 @@ root.render(
   </React.StrictMode>
 );
 
-// Enregistrement du service worker
+// Enregistrer le service worker
 serviceWorkerRegistration.register();
